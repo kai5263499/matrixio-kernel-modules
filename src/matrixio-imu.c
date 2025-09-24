@@ -1,3 +1,4 @@
+#include "matrixio-compat.h"
 /*
  * matrixio_imu.c - Support for Vishay VEML6070 UV A light sensor
  *
@@ -203,13 +204,13 @@ static int matrixio_imu_probe(struct platform_device *pdev)
 	return iio_device_register(indio_dev);
 }
 
-static int matrixio_imu_remove(struct platform_device *pdev)
+static MATRIXIO_REMOVE_RETURN_TYPE matrixio_imu_remove(struct platform_device *pdev)
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(&pdev->dev);
 
 	iio_device_unregister(indio_dev);
 
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static struct platform_driver matrixio_imu_driver = {

@@ -1,0 +1,36 @@
+Source: matrixio-kernel-modules-buster
+Section: embedded
+Priority: optional
+Maintainer: MATRIX Labs <info@matrix.one>
+Build-Depends: debhelper (>= 9), dkms, device-tree-compiler, build-essential
+Standards-Version: 3.9.8
+Homepage: https://github.com/matrix-io/matrixio-kernel-modules
+Vcs-Git: https://github.com/matrix-io/matrixio-kernel-modules.git
+Vcs-Browser: https://github.com/matrix-io/matrixio-kernel-modules
+
+Package: matrixio-kernel-modules-buster
+Architecture: all
+Depends: ${misc:Depends},
+ matrixio-creator-init,
+ raspberrypi-kernel-headers,
+ raspberrypi-kernel,
+ dkms,
+Description: Matrix Creator kernel modules for Raspbian Buster
+ This package provides DKMS source for MATRIX Creator kernel modules
+ optimized for Raspbian Buster (Debian 10.13).
+ .
+ Supports:
+  - Raspberry Pi 4 Model B Rev 1.4 (BCM2711) with 5.10.103-v7l+ kernel (ARM32)
+  - Legacy Raspberry Pi systems with 5.10.x kernel series
+ .
+ The package includes kernel modules for:
+  - Core MFD functionality (matrixio-core)
+  - Audio codec support (matrixio-codec, matrixio-mic, matrixio-playback)
+  - Environmental sensors (matrixio-env, matrixio-imu)
+  - LED ring control (matrixio-everloop)
+  - GPIO interface (matrixio-gpio)
+  - UART interface (matrixio-uart)
+  - Register map interface (matrixio-regmap)
+ .
+ This legacy package maintains compatibility with older kernel APIs
+ and is specifically designed for production Pi 4 systems.

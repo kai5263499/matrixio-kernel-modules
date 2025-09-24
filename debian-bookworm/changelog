@@ -1,0 +1,18 @@
+matrixio-kernel-modules-bookworm (0.3.1-1) unstable; urgency=medium
+
+  * Initial Bookworm-specific package release
+  * Full kernel API compatibility for 6.x kernel series
+  * Support for Raspberry Pi 5 (6.12.34+rpt-rpi-2712 kernel, ARM64)
+  * Support for Raspberry Pi 4 (6.1.70-rpi-v8 kernel, ARM64)  
+  * Comprehensive KUnit test suite with Docker containers
+  * Debian 12.12 Bookworm compatibility
+  * Enhanced DKMS integration for modern kernels
+  * Improved cross-compilation support
+
+ -- GitHub Actions <github-actions@github.com>  Tue, 24 Sep 2025 14:00:00 +0000
+
+matrixio-kernel-modules-bookworm (0.2.5) unstable; urgency=low
+  * Mic driver and device tree updated for 5.10.x kernel series
+  * Legacy Buster compatibility maintained
+
+ -- Andres Calderon <andres.calderon@admobilize.com>  Mon, 29 Mar 2021 10:00 -0500

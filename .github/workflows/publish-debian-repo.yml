@@ -1,0 +1,399 @@
+name: Publish Debian Repository
+
+on:
+  workflow_run:
+    workflows: ["Test, Build and Package Matrix Kernel Modules"]
+    types:
+      - completed
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  publish-debian-repo:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: packages-*
+        merge-multiple: true
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        run-id: ${{ github.event.workflow_run.id }}
+
+    - name: Setup Debian repository tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y dpkg-dev apt-utils gnupg2
+
+    - name: Create Debian repository structure
+      run: |
+        # Create repository structure
+        mkdir -p debian-repo/{pool/main,dists/stable/main/binary-{armhf,arm64,all}}
+        mkdir -p debian-repo/dists/unstable/main/binary-{armhf,arm64,all}
+        
+        echo "Repository structure created:"
+        find debian-repo -type d
+
+    - name: Organize DEB packages by target and component
+      run: |
+        # Organize packages by target platform and component
+        for deb_file in *.deb; do
+          if [[ -f "$deb_file" ]]; then
+            echo "Processing: $deb_file"
+            
+            # Extract target, component, and architecture from filename
+            # Format: matrixio-kernel-modules_TARGET-CODENAME-VERSION-COMPONENT_ARCH.deb
+            if [[ "$deb_file" =~ matrixio-kernel-modules_([^-]+)-([^-]+)-([^-]+)-(main|unstable)_([^.]+)\.deb ]]; then
+              target="${BASH_REMATCH[1]}"
+              codename="${BASH_REMATCH[2]}"
+              version="${BASH_REMATCH[3]}"
+              component="${BASH_REMATCH[4]}"
+              arch="${BASH_REMATCH[5]}"
+              
+              echo "  Target: $target, Codename: $codename, Version: $version, Component: $component, Arch: $arch"
+              
+              # Determine distribution based on component
+              if [[ "$component" == "main" ]]; then
+                dist="stable"
+              else
+                dist="unstable"
+              fi
+              
+              # Copy to appropriate location
+              cp "$deb_file" "debian-repo/pool/main/"
+              
+              echo "  Copied to debian-repo/pool/main/"
+            else
+              echo "  Warning: Filename doesn't match expected pattern, copying to pool anyway"
+              cp "$deb_file" "debian-repo/pool/main/"
+            fi
+          fi
+        done
+
+    - name: Generate Packages files
+      run: |
+        cd debian-repo
+        
+        # Generate Packages files for each distribution and architecture
+        for dist in stable unstable; do
+          for arch in armhf arm64 all; do
+            echo "Generating Packages file for $dist/$arch"
+            
+            # Create directory if it doesn't exist
+            mkdir -p "dists/$dist/main/binary-$arch"
+            
+            # Generate Packages file
+            dpkg-scanpackages \
+              --arch "$arch" \
+              pool/main \
+              /dev/null \
+              > "dists/$dist/main/binary-$arch/Packages"
+            
+            # Compress Packages file
+            gzip -c "dists/$dist/main/binary-$arch/Packages" > "dists/$dist/main/binary-$arch/Packages.gz"
+            
+            echo "Generated: dists/$dist/main/binary-$arch/Packages ($(wc -l < "dists/$dist/main/binary-$arch/Packages") packages)"
+          done
+        done
+
+    - name: Generate Release files
+      run: |
+        cd debian-repo
+        
+        # Function to generate Release file
+        generate_release() {
+          local dist="$1"
+          local release_file="dists/$dist/Release"
+          
+          cat > "$release_file" << EOF
+        Origin: Matrix Creator
+        Label: Matrix Creator Kernel Modules
+        Suite: $dist
+        Codename: $dist
+        Version: 1.0
+        Components: main
+        Architectures: armhf arm64 all
+        Description: Matrix Creator HAT kernel modules for Raspberry Pi systems
+        Date: $(date -R)
+        EOF
+          
+          # Add file hashes
+          echo "MD5Sum:" >> "$release_file"
+          (cd "dists/$dist" && find . -type f -name "Packages*" -exec md5sum {} \; | sed 's/\.\///') >> "$release_file"
+          
+          echo "SHA1:" >> "$release_file"
+          (cd "dists/$dist" && find . -type f -name "Packages*" -exec sha1sum {} \; | sed 's/\.\///') >> "$release_file"
+          
+          echo "SHA256:" >> "$release_file"
+          (cd "dists/$dist" && find . -type f -name "Packages*" -exec sha256sum {} \; | sed 's/\.\///') >> "$release_file"
+          
+          echo "Generated Release file for $dist"
+        }
+        
+        # Generate Release files for each distribution
+        generate_release "stable"
+        generate_release "unstable"
+
+    - name: Create repository index
+      run: |
+        cat > debian-repo/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Matrix Creator Debian Repository</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; }
+                .header { background: #f0f0f0; padding: 20px; border-radius: 5px; }
+                .section { margin: 20px 0; }
+                code { background: #f5f5f5; padding: 2px 4px; border-radius: 3px; }
+                pre { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>Matrix Creator Debian Repository</h1>
+                <p>Kernel modules for Matrix Creator HATs on Raspberry Pi systems</p>
+            </div>
+            
+            <div class="section">
+                <h2>Quick Setup</h2>
+                <p>Add this repository to your Raspberry Pi system:</p>
+                <pre><code># Add repository
+        echo "deb [trusted=yes] https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/ stable main" | sudo tee /etc/apt/sources.list.d/matrixio.list
+
+        # Update package list
+        sudo apt update
+
+        # Install Matrix Creator kernel modules
+        sudo apt install matrixio-kernel-modules</code></pre>
+            </div>
+            
+            <div class="section">
+                <h2>Target Platforms</h2>
+                <ul>
+                    <li><strong>Pi 4 Legacy:</strong> 5.10.103-v7l+ kernel (ARM32)</li>
+                    <li><strong>Pi 5 Latest:</strong> 6.12.34+rpt-rpi-2712 kernel (ARM64)</li>
+                </ul>
+            </div>
+            
+            <div class="section">
+                <h2>Repository Structure</h2>
+                <ul>
+                    <li><code>stable/</code> - Released versions from tagged commits</li>
+                    <li><code>unstable/</code> - Development versions from main branch</li>
+                </ul>
+            </div>
+            
+            <div class="section">
+                <h2>Manual Download</h2>
+                <p>Browse packages: <a href="pool/main/">pool/main/</a></p>
+            </div>
+        </body>
+        </html>
+        EOF
+
+    - name: Create package directory indexes
+      run: |
+        cd debian-repo
+        
+        # Create index.html for pool directory
+        cat > pool/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Matrix Creator Packages - Pool</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; }
+                .header { background: #f0f0f0; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+                .section { margin: 20px 0; }
+                .back-link { margin-bottom: 20px; }
+                .back-link a { color: #007cba; text-decoration: none; }
+                .back-link a:hover { text-decoration: underline; }
+                .directory-link { 
+                    display: block; 
+                    padding: 15px; 
+                    margin: 10px 0; 
+                    background: #f9f9f9; 
+                    border-radius: 5px; 
+                    border-left: 4px solid #007cba; 
+                    text-decoration: none; 
+                    color: #333; 
+                }
+                .directory-link:hover { background: #f0f0f0; }
+                .directory-name { font-weight: bold; font-size: 1.1em; color: #007cba; }
+                .directory-desc { color: #666; margin-top: 5px; }
+            </style>
+        </head>
+        <body>
+            <div class="back-link">
+                <a href="../">← Back to Repository</a>
+            </div>
+            
+            <div class="header">
+                <h1>Matrix Creator Package Pool</h1>
+                <p>Package directories for different components</p>
+            </div>
+            
+            <div class="section">
+                <a href="main/" class="directory-link">
+                    <div class="directory-name">main/</div>
+                    <div class="directory-desc">Main component packages - Matrix Creator kernel modules</div>
+                </a>
+            </div>
+        </body>
+        </html>
+        EOF
+        
+        # Create index.html for pool/main directory
+        cat > pool/main/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Matrix Creator Packages - pool/main</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; }
+                .header { background: #f0f0f0; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+                .package-list { margin: 20px 0; }
+                .package-item { 
+                    background: #f9f9f9; 
+                    padding: 15px; 
+                    margin: 10px 0; 
+                    border-radius: 5px; 
+                    border-left: 4px solid #007cba; 
+                }
+                .package-name { font-weight: bold; font-size: 1.1em; color: #007cba; }
+                .package-details { color: #666; margin-top: 5px; }
+                .download-link { 
+                    display: inline-block; 
+                    margin-top: 10px; 
+                    padding: 8px 16px; 
+                    background: #007cba; 
+                    color: white; 
+                    text-decoration: none; 
+                    border-radius: 3px; 
+                }
+                .download-link:hover { background: #005a87; }
+                .back-link { margin-bottom: 20px; }
+                .back-link a { color: #007cba; text-decoration: none; }
+                .back-link a:hover { text-decoration: underline; }
+            </style>
+        </head>
+        <body>
+            <div class="back-link">
+                <a href="../../">← Back to Repository</a>
+            </div>
+            
+            <div class="header">
+                <h1>Matrix Creator Debian Packages</h1>
+                <p>Available packages in pool/main/</p>
+            </div>
+            
+            <div class="package-list">
+        EOF
+        
+        # List all .deb files and create entries
+        for deb_file in pool/main/*.deb; do
+          if [[ -f "$deb_file" ]]; then
+            filename=$(basename "$deb_file")
+            filesize=$(ls -lh "$deb_file" | awk '{print $5}')
+            
+            # Extract package info
+            if [[ "$filename" =~ matrixio-kernel-modules-([^_]+)_(.+)\.deb ]]; then
+              package_variant="${BASH_REMATCH[1]}"
+              version_info="${BASH_REMATCH[2]}"
+              
+              # Determine target description
+              if [[ "$package_variant" == "bookworm" ]]; then
+                target_desc="Modern ARM64 systems (Pi 5, updated Pi 4)"
+                kernel_info="6.x kernels"
+              elif [[ "$package_variant" == "buster" ]]; then
+                target_desc="Legacy ARM32 systems (Pi 4 legacy)"
+                kernel_info="5.10.x kernels"
+              else
+                target_desc="$package_variant systems"
+                kernel_info="Multiple kernels"
+              fi
+              
+              cat >> pool/main/index.html << EOF
+                <div class="package-item">
+                    <div class="package-name">matrixio-kernel-modules-$package_variant</div>
+                    <div class="package-details">
+                        <strong>Target:</strong> $target_desc<br>
+                        <strong>Kernels:</strong> $kernel_info<br>
+                        <strong>File:</strong> $filename<br>
+                        <strong>Size:</strong> $filesize
+                    </div>
+                    <a href="$filename" class="download-link">Download Package</a>
+                </div>
+        EOF
+            fi
+          fi
+        done
+        
+        # Close the HTML
+        cat >> pool/main/index.html << 'EOF'
+            </div>
+            
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666;">
+                <p><strong>Installation:</strong> Add the repository to your system and install via <code>apt install matrixio-kernel-modules</code></p>
+                <p><strong>Manual Installation:</strong> Download the appropriate .deb file and install with <code>sudo dpkg -i filename.deb</code></p>
+            </div>
+        </body>
+        </html>
+        EOF
+        
+        echo "Created package index at pool/main/index.html"
+        echo "Available packages:"
+        ls -la pool/main/*.deb
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+
+    - name: Upload repository to Pages
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: debian-repo
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+
+    - name: Repository Summary
+      run: |
+        echo "## Debian Repository Published" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "🎉 **Repository URL:** https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Quick Setup Commands" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "# Add repository" >> $GITHUB_STEP_SUMMARY
+        echo 'echo "deb [trusted=yes] https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/ stable main" | sudo tee /etc/apt/sources.list.d/matrixio.list' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# Update and install" >> $GITHUB_STEP_SUMMARY
+        echo "sudo apt update" >> $GITHUB_STEP_SUMMARY
+        echo "sudo apt install matrixio-kernel-modules" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Packages in Repository" >> $GITHUB_STEP_SUMMARY
+        echo "| Distribution | Architecture | Packages |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------------|--------------|----------|" >> $GITHUB_STEP_SUMMARY
+        
+        cd debian-repo
+        for dist in stable unstable; do
+          for arch in armhf arm64 all; do
+            if [[ -f "dists/$dist/main/binary-$arch/Packages" ]]; then
+              count=$(grep -c "^Package:" "dists/$dist/main/binary-$arch/Packages" || echo "0")
+              echo "| $dist | $arch | $count |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+        done
