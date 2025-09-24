@@ -84,6 +84,11 @@ jobs:
       run: |
         cd debian-repo
         
+        # Debug: Show what packages we have
+        echo "=== Available packages in pool/main ==="
+        ls -la pool/main/ || echo "No pool/main directory found"
+        echo ""
+        
         # Generate Packages files for each distribution and architecture
         for dist in stable unstable; do
           for arch in armhf arm64 all; do
@@ -93,16 +98,28 @@ jobs:
             mkdir -p "dists/$dist/main/binary-$arch"
             
             # Generate Packages file
-            dpkg-scanpackages \
+            if dpkg-scanpackages \
               --arch "$arch" \
               pool/main \
               /dev/null \
-              > "dists/$dist/main/binary-$arch/Packages"
-            
-            # Compress Packages file
-            gzip -c "dists/$dist/main/binary-$arch/Packages" > "dists/$dist/main/binary-$arch/Packages.gz"
-            
-            echo "Generated: dists/$dist/main/binary-$arch/Packages ($(wc -l < "dists/$dist/main/binary-$arch/Packages") packages)"
+              > "dists/$dist/main/binary-$arch/Packages" 2>/dev/null; then
+              
+              # Compress Packages file if not empty
+              if [[ -s "dists/$dist/main/binary-$arch/Packages" ]]; then
+                gzip -c "dists/$dist/main/binary-$arch/Packages" > "dists/$dist/main/binary-$arch/Packages.gz"
+                echo "Generated: dists/$dist/main/binary-$arch/Packages ($(wc -l < "dists/$dist/main/binary-$arch/Packages") packages)"
+              else
+                echo "No packages found for $dist/$arch"
+                # Create empty files to avoid APT errors
+                touch "dists/$dist/main/binary-$arch/Packages"
+                gzip -c "dists/$dist/main/binary-$arch/Packages" > "dists/$dist/main/binary-$arch/Packages.gz"
+              fi
+            else
+              echo "Failed to generate packages for $dist/$arch"
+              # Create empty files to avoid APT errors
+              touch "dists/$dist/main/binary-$arch/Packages"
+              gzip -c "dists/$dist/main/binary-$arch/Packages" > "dists/$dist/main/binary-$arch/Packages.gz"
+            fi
           done
         done
 
@@ -116,28 +133,60 @@ jobs:
           local release_file="dists/$dist/Release"
           
           cat > "$release_file" << EOF
-        Origin: Matrix Creator
-        Label: Matrix Creator Kernel Modules
-        Suite: $dist
-        Codename: $dist
-        Version: 1.0
-        Components: main
-        Architectures: armhf arm64 all
-        Description: Matrix Creator HAT kernel modules for Raspberry Pi systems
-        Date: $(date -R)
-        EOF
+Origin: Matrix Creator
+Label: Matrix Creator Kernel Modules
+Suite: $dist
+Codename: $dist
+Version: 1.0
+Components: main
+Architectures: armhf arm64 all
+Description: Matrix Creator HAT kernel modules for Raspberry Pi systems
+Date: $(date -R)
+EOF
           
-          # Add file hashes
-          echo "MD5Sum:" >> "$release_file"
-          (cd "dists/$dist" && find . -type f -name "Packages*" -exec md5sum {} \; | sed 's/\.\///') >> "$release_file"
+          # Generate hash sections with proper formatting
+          local temp_md5=$(mktemp)
+          local temp_sha1=$(mktemp)
+          local temp_sha256=$(mktemp)
           
-          echo "SHA1:" >> "$release_file"
-          (cd "dists/$dist" && find . -type f -name "Packages*" -exec sha1sum {} \; | sed 's/\.\///') >> "$release_file"
+          # Find all Packages files and calculate hashes
+          cd "dists/$dist"
+          find . -type f \( -name "Packages" -o -name "Packages.gz" \) | while read file; do
+            if [[ -f "$file" ]]; then
+              # Get file size and relative path
+              local size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file")
+              local relpath="${file#./}"
+              
+              # Calculate hashes
+              md5sum "$file" | awk -v size="$size" -v path="$relpath" '{printf " %s %8d %s\n", $1, size, path}' >> "$temp_md5"
+              sha1sum "$file" | awk -v size="$size" -v path="$relpath" '{printf " %s %8d %s\n", $1, size, path}' >> "$temp_sha1"
+              sha256sum "$file" | awk -v size="$size" -v path="$relpath" '{printf " %s %8d %s\n", $1, size, path}' >> "$temp_sha256"
+            fi
+          done
+          cd - > /dev/null
           
-          echo "SHA256:" >> "$release_file"
-          (cd "dists/$dist" && find . -type f -name "Packages*" -exec sha256sum {} \; | sed 's/\.\///') >> "$release_file"
+          # Add hash sections to Release file if files exist
+          if [[ -s "$temp_md5" ]]; then
+            echo "MD5Sum:" >> "$release_file"
+            cat "$temp_md5" >> "$release_file"
+          fi
+          
+          if [[ -s "$temp_sha1" ]]; then
+            echo "SHA1:" >> "$release_file"
+            cat "$temp_sha1" >> "$release_file"
+          fi
+          
+          if [[ -s "$temp_sha256" ]]; then
+            echo "SHA256:" >> "$release_file"
+            cat "$temp_sha256" >> "$release_file"
+          fi
+          
+          # Clean up temp files
+          rm -f "$temp_md5" "$temp_sha1" "$temp_sha256"
           
           echo "Generated Release file for $dist"
+          echo "Release file contents:"
+          cat "$release_file"
         }
         
         # Generate Release files for each distribution
