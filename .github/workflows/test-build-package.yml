@@ -2,10 +2,10 @@ name: Test, Build and Package Matrix Kernel Modules
 
 on:
   push:
-    branches: [ main, master ]
-    tags: [ 'v*' ]
+    branches: [main, master]
+    tags: ['v*']
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 env:
   DEBIAN_FRONTEND: noninteractive
@@ -22,31 +22,31 @@ jobs:
           - ci-standard
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-    - name: Run KUnit tests for ${{ matrix.test-target }}
-      run: |
-        echo "🧪 Testing Matrix Creator kernel modules"
-        echo "📋 Target: ${{ matrix.test-target }}"
-        echo "🔖 Version: $(scripts/get-version.sh --current)"
-        cd tests
-        ./run-tests-docker.sh --verbose ${{ matrix.test-target }}
+      - name: Run KUnit tests for ${{ matrix.test-target }}
+        run: |
+          echo "🧪 Testing Matrix Creator kernel modules"
+          echo "📋 Target: ${{ matrix.test-target }}"
+          echo "🔖 Version: $(scripts/get-version.sh --current)"
+          cd tests
+          ./run-tests-docker.sh --verbose ${{ matrix.test-target }}
 
-    - name: Archive test results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: test-results-${{ matrix.test-target }}
-        path: |
-          tests/test-results-*
-          tests/*.log
-        retention-days: 30
+      - name: Archive test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.test-target }}
+          path: |
+            tests/test-results-*
+            tests/*.log
+          retention-days: 30
 
   # Phase 2: Verify build compatibility (only after tests pass)
   verify-build-compatibility:
@@ -84,13 +84,13 @@ jobs:
             platform: "ci"
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
     - name: Build Docker image
       run: |
@@ -148,7 +148,7 @@ jobs:
             package_name: "matrixio-kernel-modules-bookworm"
     
     steps:
-    - name: Checkout code
+      - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -286,7 +286,7 @@ jobs:
     if: always()
     
     steps:
-    - name: Download all test artifacts
+      - name: Download all test artifacts
       uses: actions/download-artifact@v4
       with:
         pattern: test-results-*
@@ -342,14 +342,35 @@ jobs:
         echo "- **Version Management**: Semantic versioning with centralized VERSION file" >> $GITHUB_STEP_SUMMARY
         echo "- **Artifacts retention**: 30 days (90 days for releases)" >> $GITHUB_STEP_SUMMARY
 
-  # Phase 5: Create GitHub Release for tags (only after all phases succeed)
+  # Phase 5: Auto-versioning and tagging (only on main branch pushes)
+  auto-version-and-tag:
+    needs: [run-tests, verify-build-compatibility, package]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.ref_type != 'tag'
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto-version and tag
+        run: |
+          chmod +x .github/scripts/auto-version-and-tag.sh
+          export GITHUB_EVENT_HEAD_COMMIT_MESSAGE="${{ github.event.head_commit.message }}"
+          .github/scripts/auto-version-and-tag.sh
+
+  # Phase 6: Create GitHub Release for tags (only after all phases succeed)
   create-release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs: [run-tests, verify-build-compatibility, package]
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout
+      - name: Checkout
       uses: actions/checkout@v4
 
     - name: Download release artifacts

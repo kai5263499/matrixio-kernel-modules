@@ -62,3 +62,6 @@ test_*.log
 include/config/
 include/generated/
 arch/*/include/generated/
+# Keep GitHub workflow templates and scripts
+!.github/templates/
+!.github/scripts/
