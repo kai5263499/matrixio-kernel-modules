@@ -1,0 +1,89 @@
+---
+name: Publish Debian Repository
+
+on:
+  workflow_run:
+    workflows: ["Test, Build and Package Matrix Kernel Modules"]
+    types:
+      - completed
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  publish-debian-repo:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Setup Debian repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils gnupg2
+
+      - name: Create Debian repository structure
+        run: |
+          # Create repository structure
+          mkdir -p debian-repo/{pool/main,dists/stable/main/binary-{armhf,arm64,all}}
+          mkdir -p debian-repo/dists/unstable/main/binary-{armhf,arm64,all}
+        
+          echo "Repository structure created:"
+          find debian-repo -type d
+
+      - name: Organize DEB packages by target and component
+        run: |
+          chmod +x .github/scripts/organize-packages.sh
+          .github/scripts/organize-packages.sh
+
+      - name: Generate repository metadata
+        run: |
+          chmod +x scripts/generate-debian-repo.sh
+          scripts/generate-debian-repo.sh debian-repo
+
+      - name: Create repository index
+        run: |
+          sed "s/REPO_OWNER/${{ github.repository_owner }}/g; s/REPO_NAME/${{ github.event.repository.name }}/g" \
+              .github/templates/repository-index.html > debian-repo/index.html
+
+      - name: Create package directory indexes
+        run: |
+          chmod +x .github/scripts/create-package-indexes.sh
+          export GITHUB_REPOSITORY_OWNER="${{ github.repository_owner }}"
+          export GITHUB_EVENT_REPOSITORY_NAME="${{ github.event.repository.name }}"
+          .github/scripts/create-package-indexes.sh
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload repository to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: debian-repo
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Repository Summary
+        run: |
+          chmod +x .github/scripts/generate-repository-summary.sh
+          export GITHUB_REPOSITORY_OWNER="${{ github.repository_owner }}"
+          export GITHUB_EVENT_REPOSITORY_NAME="${{ github.event.repository.name }}"
+          .github/scripts/generate-repository-summary.sh

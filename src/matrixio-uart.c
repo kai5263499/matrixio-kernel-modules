@@ -14,6 +14,7 @@
 #include <linux/tty_flip.h>
 
 #include "matrixio-core.h"
+#include "matrixio-compat.h"
 
 static struct matrixio *matrixio;
 static struct uart_port port;
@@ -88,12 +89,12 @@ static void matrixio_uart_start_tx(struct uart_port *port)
 
 		matrixio_reg_write(
 		    matrixio, MATRIXIO_UART_BASE + 0x101,
-		    port->state->xmit.buf[port->state->xmit.tail]);
+		    MATRIXIO_UART_XMIT_BUF(port)[MATRIXIO_UART_XMIT_TAIL(port)]);
 		port->state->xmit.tail =
 		    (port->state->xmit.tail + 1) & (UART_XMIT_SIZE - 1);
 		port->icount.tx++;
 
-		if (uart_circ_empty(&port->state->xmit))
+		if (MATRIXIO_UART_CIRC_EMPTY(port))
 			break;
 	}
 
@@ -137,7 +138,7 @@ static int matrixio_uart_startup(struct uart_port *port)
 	dev_info(port->dev, "MATRIX Creator TTY has been loaded (IRQ=%d,%d)",
 		 irq, ret);
 
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static void matrixio_uart_shutdown(struct uart_port *port)
@@ -150,7 +151,7 @@ static void matrixio_uart_shutdown(struct uart_port *port)
 
 static void matrixio_uart_set_termios(struct uart_port *port,
 				      struct ktermios *termios,
-				      struct ktermios *old)
+				      const struct ktermios *old)
 {
 }
 
@@ -165,8 +166,7 @@ static void matrixio_uart_config_port(struct uart_port *port, int flags) {}
 
 static void matrixio_uart_release_port(struct uart_port *port) {}
 
-static int matrixio_uart_verify_port(struct uart_port *port,
-				     struct serial_struct *ser)
+static int matrixio_uart_verify_port(struct uart_port *port, struct serial_struct *ser)
 {
 	return 0;
 }
@@ -239,12 +239,12 @@ static int matrixio_uart_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int matrixio_uart_remove(struct platform_device *pdev)
+static MATRIXIO_REMOVE_RETURN_TYPE matrixio_uart_remove(struct platform_device *pdev)
 {
 	uart_remove_one_port(&matrixio_uart_driver, &port);
 	port.dev = NULL;
 	uart_unregister_driver(&matrixio_uart_driver);
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static const struct of_device_id matrixio_uart_dt_ids[] = {

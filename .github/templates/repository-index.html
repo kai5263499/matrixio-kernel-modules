@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Matrix Creator Debian Repository</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .header { background: #f0f0f0; padding: 20px; border-radius: 5px; }
+        .section { margin: 20px 0; }
+        code { background: #f5f5f5; padding: 2px 4px; border-radius: 3px; }
+        pre { background: #f5f5f5; padding: 15px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Matrix Creator Debian Repository</h1>
+        <p>Kernel modules for Matrix Creator HATs on Raspberry Pi systems</p>
+    </div>
+    
+    <div class="section">
+        <h2>Quick Setup</h2>
+        <p>Add this repository to your Raspberry Pi system:</p>
+        <pre><code># Add repository
+echo "deb [trusted=yes] https://REPO_OWNER.github.io/REPO_NAME/ stable main" | sudo tee /etc/apt/sources.list.d/matrixio.list
+
+# Update package list
+sudo apt update
+
+# Install Matrix Creator kernel modules
+sudo apt install matrixio-kernel-modules</code></pre>
+    </div>
+    
+    <div class="section">
+        <h2>DKMS Packages</h2>
+        <p>These packages contain source code that automatically compiles for your specific kernel during installation:</p>
+        <ul>
+            <li><strong>matrixio-kernel-modules-buster:</strong> Pi 4 Legacy (5.10.x kernels, ARM32)</li>
+            <li><strong>matrixio-kernel-modules-bookworm:</strong> Pi 5 + Modern Pi 4 (6.x kernels, ARM64)</li>
+        </ul>
+        <p><strong>Benefits:</strong> Always compatible with your kernel version, automatically rebuilds on kernel updates</p>
+    </div>
+    
+    <div class="section">
+        <h2>Repository Structure</h2>
+        <ul>
+            <li><code>stable/</code> - Released versions from tagged commits</li>
+            <li><code>unstable/</code> - Development versions from main branch</li>
+        </ul>
+    </div>
+    
+    <div class="section">
+        <h2>Manual Download</h2>
+        <p>Browse packages: <a href="pool/main/">pool/main/</a></p>
+    </div>
+</body>
+</html>

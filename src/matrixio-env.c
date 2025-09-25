@@ -1,3 +1,4 @@
+#include "matrixio-compat.h"
 /*
  * matrixio_env.c - Support for Vishay VEML6070 UV A light sensor
  *
@@ -99,11 +100,12 @@ static int matrixio_env_read_raw(struct iio_dev *indio_dev,
 	int ret;
 	struct matrixio_env_data env_data;
 
-	mutex_lock(&indio_dev->mlock);
+static DEFINE_MUTEX(env_lock);
+	mutex_lock(&env_lock);
 	ret = matrixio_read(data->mio,
 			    MATRIXIO_MCU_BASE + (MATRIXIO_SRAM_OFFSET_ENV >> 1),
 			    sizeof(env_data), &env_data);
-	mutex_unlock(&indio_dev->mlock);
+	mutex_unlock(&env_lock);
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
@@ -172,13 +174,13 @@ static int matrixio_env_probe(struct platform_device *pdev)
 	return iio_device_register(indio_dev);
 }
 
-static int matrixio_env_remove(struct platform_device *pdev)
+static MATRIXIO_REMOVE_RETURN_TYPE matrixio_env_remove(struct platform_device *pdev)
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(&pdev->dev);
 
 	iio_device_unregister(indio_dev);
 
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static struct platform_driver matrixio_env_driver = {
