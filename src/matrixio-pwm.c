@@ -1,3 +1,4 @@
+#include "matrixio-compat.h"
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/module.h>
@@ -20,14 +21,14 @@ static inline struct matrixio_pwm_chip *to_matrixio(struct pwm_chip *chip)
 
 static int matrixio_pwm_request(struct pwm_chip *chip, struct pwm_device *pwm)
 {
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static void matrixio_pwm_free(struct pwm_chip *chip, struct pwm_device *pwm) {}
 
 static int matrixio_pwm_enable(struct pwm_chip *chip, struct pwm_device *pwm)
 {
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static void matrixio_pwm_disable(struct pwm_chip *chip, struct pwm_device *pwm)
@@ -37,7 +38,7 @@ static void matrixio_pwm_disable(struct pwm_chip *chip, struct pwm_device *pwm)
 static int matrixio_pwm_config(struct pwm_chip *chip, struct pwm_device *pwm,
 			       int duty_ns, int period_ns)
 {
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static const struct pwm_ops matrixio_pwm_ops = {
@@ -69,7 +70,7 @@ static int matrixio_pwm_probe(struct platform_device *pdev)
 	return pwmchip_add(&matrixio_pwm->chip);
 }
 
-static int matrixio_pwm_remove(struct platform_device *pdev)
+static MATRIXIO_REMOVE_RETURN_TYPE matrixio_pwm_remove(struct platform_device *pdev)
 {
 	struct matrixio_pwm_chip *matrixio_pwm = platform_get_drvdata(pdev);
 

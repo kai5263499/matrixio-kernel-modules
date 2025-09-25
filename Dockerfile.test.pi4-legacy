@@ -1,0 +1,130 @@
+FROM debian:bullseye-slim
+
+LABEL matrixio-test=true
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    bc \
+    kmod \
+    cpio \
+    flex \
+    bison \
+    libssl-dev \
+    libelf-dev \
+    git \
+    wget \
+    python3 \
+    python3-pip \
+    device-tree-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies for testing
+RUN pip3 install \
+    pytest \
+    coverage \
+    pyelftools
+
+# Set up cross-compilation for ARM
+RUN if [ "arm" = "arm" ]; then \
+        apt-get update && apt-get install -y gcc-arm-linux-gnueabihf && rm -rf /var/lib/apt/lists/*; \
+    elif [ "arm" = "arm64" ]; then \
+        apt-get update && apt-get install -y gcc-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Download and prepare kernel headers for the target version
+WORKDIR /kernel
+RUN echo "Kernel version: 5.10.103-v7l+" && \
+    if echo "5.10.103-v7l+" | grep -q -E "(rpi|stable_)" || [ "${kernel_version#*v7l}" != "5.10.103-v7l+" ] || [ "${kernel_version#*v8}" != "5.10.103-v7l+" ]; then \
+        echo "Detected Raspberry Pi kernel pattern" && \
+        # Map specific versions to known working tags \
+        case "5.10.103-v7l+" in \
+            5.10.103*) \
+                echo "Mapping to stable_20231123 for 5.10.103 series" && \
+                git clone --depth 1 --branch stable_20231123 https://github.com/raspberrypi/linux.git . ;; \
+            6.12.34*) \
+                echo "Mapping to stable_20250127 for 6.12.34 series" && \
+                git clone --depth 1 --branch stable_20250127 https://github.com/raspberrypi/linux.git . ;; \
+            6.1.70*) \
+                echo "Mapping to stable_20240529 for 6.1.70 series" && \
+                git clone --depth 1 --branch stable_20240529 https://github.com/raspberrypi/linux.git . ;; \
+            *) \
+                echo "Using fallback to latest rpi-6.6.y branch" && \
+                git clone --depth 1 --branch rpi-6.6.y https://github.com/raspberrypi/linux.git . ;; \
+        esac \
+    else \
+        echo "Detected mainline kernel" && \
+        KERNEL_MAJOR=$(echo "5.10.103-v7l+" | cut -d. -f1) && \
+        echo "Downloading mainline kernel v$KERNEL_MAJOR.x" && \
+        wget -q "https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_MAJOR}.x/linux-5.10.103-v7l+.tar.xz" && \
+        tar -xf "linux-5.10.103-v7l+.tar.xz" --strip-components=1 && \
+        rm "linux-5.10.103-v7l+.tar.xz" ; \
+    fi
+
+# Configure kernel for target architecture
+RUN if [ "arm" = "arm" ]; then \
+        export ARCH=arm && export CROSS_COMPILE=arm-linux-gnueabihf- ; \
+    elif [ "arm" = "arm64" ]; then \
+        export ARCH=arm64 && export CROSS_COMPILE=aarch64-linux-gnu- ; \
+    else \
+        export ARCH=x86_64 ; \
+    fi && \
+    make defconfig && \
+    echo "CONFIG_KUNIT=y" >> .config && \
+    echo "CONFIG_KUNIT_TEST=y" >> .config && \
+    echo "CONFIG_SPI=y" >> .config && \
+    echo "CONFIG_IIO=y" >> .config && \
+    echo "CONFIG_OF=y" >> .config && \
+    echo "CONFIG_MFD_CORE=y" >> .config && \
+    make olddefconfig && \
+    make prepare && \
+    make modules_prepare && \
+    make -j4 kernel/bounds.s kernel/time/timeconst.h arch/$ARCH/include/generated/asm/syscalls_64.h 2>/dev/null || true && \
+    make -j4 drivers/spi/spi.ko drivers/mfd/mfd-core.ko 2>/dev/null || make -j4 M=drivers/spi M=drivers/mfd modules 2>/dev/null || true
+
+WORKDIR /src
+COPY . .
+
+# Create build script
+RUN echo '#!/bin/bash' > /build-and-test.sh
+RUN echo 'set -e' >> /build-and-test.sh
+RUN echo 'cd /src' >> /build-and-test.sh
+RUN echo 'if [ "$1" = "arm" ]; then' >> /build-and-test.sh
+RUN echo '    export ARCH=arm' >> /build-and-test.sh
+RUN echo '    export CROSS_COMPILE=arm-linux-gnueabihf-' >> /build-and-test.sh
+RUN echo 'elif [ "$1" = "arm64" ]; then' >> /build-and-test.sh
+RUN echo '    export ARCH=arm64' >> /build-and-test.sh
+RUN echo '    export CROSS_COMPILE=aarch64-linux-gnu-' >> /build-and-test.sh
+RUN echo 'else' >> /build-and-test.sh
+RUN echo '    export ARCH=x86_64' >> /build-and-test.sh
+RUN echo 'fi' >> /build-and-test.sh
+RUN echo 'export KERNELDIR=/kernel' >> /build-and-test.sh
+RUN echo 'export KDIR=/kernel' >> /build-and-test.sh
+RUN echo 'export KBUILD_MODPOST_WARN=1' >> /build-and-test.sh
+RUN echo 'export PARALLEL_JOBS=${PARALLEL_JOBS:-$(nproc)}' >> /build-and-test.sh
+RUN echo 'echo "=== Building Matrix Creator kernel modules ==="' >> /build-and-test.sh
+RUN echo 'echo "Architecture: $ARCH"' >> /build-and-test.sh
+RUN echo 'echo "Kernel: $2"' >> /build-and-test.sh
+RUN echo 'echo "Jobs: $PARALLEL_JOBS"' >> /build-and-test.sh
+RUN echo 'cd src' >> /build-and-test.sh
+RUN echo 'make -j$PARALLEL_JOBS || { echo "Main module build failed"; exit 1; }' >> /build-and-test.sh
+RUN echo 'echo "=== Main modules built successfully ==="' >> /build-and-test.sh
+RUN echo 'if [ "$3" = "build-only" ]; then' >> /build-and-test.sh
+RUN echo '    echo "Build completed successfully"' >> /build-and-test.sh
+RUN echo '    exit 0' >> /build-and-test.sh
+RUN echo 'fi' >> /build-and-test.sh
+RUN echo 'echo "=== Building test modules ==="' >> /build-and-test.sh
+RUN echo 'cd ../tests' >> /build-and-test.sh
+RUN echo 'if [ -f Makefile ]; then' >> /build-and-test.sh
+RUN echo '    make -j$PARALLEL_JOBS || { echo "Test module build failed"; exit 1; }' >> /build-and-test.sh
+RUN echo '    echo "=== Test modules built successfully ==="' >> /build-and-test.sh
+RUN echo '    ls -la *.ko 2>/dev/null || echo "No test modules found"' >> /build-and-test.sh
+RUN echo 'else' >> /build-and-test.sh
+RUN echo '    echo "No test Makefile found, skipping test build"' >> /build-and-test.sh
+RUN echo 'fi' >> /build-and-test.sh
+RUN echo 'echo "=== Test Summary ==="' >> /build-and-test.sh
+RUN echo 'echo "All modules built successfully"' >> /build-and-test.sh
+
+RUN chmod +x /build-and-test.sh
+
+ENTRYPOINT ["/build-and-test.sh"]

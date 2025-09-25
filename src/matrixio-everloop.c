@@ -1,3 +1,4 @@
+#include "matrixio-compat.h"
 #include <linux/cdev.h>
 #include <linux/fs.h>
 #include <linux/init.h>
@@ -42,9 +43,9 @@ struct file_operations matrixio_everloop_file_operations = {
     .open = matrixio_everloop_open,
     .write = matrixio_everloop_write};
 
-static int matrixio_everloop_uevent(struct device *d,
-				    struct kobj_uevent_env *env)
+static int matrixio_everloop_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
+	(void)dev; /* unused parameter */
 	add_uevent_var(env, "DEVMODE=%#o", 0666);
 	return 0;
 }
@@ -63,9 +64,9 @@ static int matrixio_everloop_probe(struct platform_device *pdev)
 	el->mio = dev_get_drvdata(pdev->dev.parent);
 
 	alloc_chrdev_region(&el->devt, 0, 1, "matrixio_everloop");
-	el->cl = class_create(THIS_MODULE, "matrixio_everloop");
+	el->cl = MATRIXIO_CLASS_CREATE("matrixio_everloop");
 
-	el->cl->dev_uevent = matrixio_everloop_uevent;
+	el->cl->dev_uevent = MATRIXIO_UEVENT_CAST(matrixio_everloop_uevent);
 
 	el->device =
 	    device_create(el->cl, NULL, el->devt, NULL, "matrixio_everloop");
@@ -81,13 +82,13 @@ static int matrixio_everloop_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int matrixio_everloop_remove(struct platform_device *pdev)
+static MATRIXIO_REMOVE_RETURN_TYPE matrixio_everloop_remove(struct platform_device *pdev)
 {
 	struct everloop_data *el = dev_get_drvdata(&pdev->dev);
 
 	unregister_chrdev(el->major, "matrixio_everloop");
 
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static struct platform_driver matrixio_everloop_driver = {

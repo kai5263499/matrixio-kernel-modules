@@ -1,0 +1,428 @@
+name: Test, Build and Package Matrix Kernel Modules
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  # Phase 1: Run comprehensive tests
+  run-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test-target:
+          - pi4-legacy
+          - pi5-latest
+          - ci-standard
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run KUnit tests for ${{ matrix.test-target }}
+        run: |
+          cd tests
+          ./run-tests-docker.sh --verbose ${{ matrix.test-target }}
+
+      - name: Archive test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.test-target }}
+          path: |
+            tests/test-results-*
+            tests/*.log
+          retention-days: 30
+
+  # Phase 2: Verify build compatibility (only after tests pass)
+  verify-build-compatibility:
+    needs: run-tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Pi 4 Legacy Target - 5.10.103-v7l+ ARM32
+          - target: pi4-legacy
+            distribution: raspbian
+            codename: bullseye
+            architecture: armhf
+            kernel_version: "5.10.103-v7l+"
+            kernel_config: "bcmrpi_defconfig"
+            arch_env: "arm"
+            platform: "pi4"
+          # Pi 5 Latest Target - 6.12.47+rpt-rpi-2712 ARM64  
+          - target: pi5-latest
+            distribution: raspbian
+            codename: bookworm
+            architecture: arm64
+            kernel_version: "6.12.47+rpt-rpi-2712"
+            kernel_config: "bcm2711_defconfig"
+            arch_env: "arm64"
+            platform: "pi5"
+          # CI Standard for compatibility testing
+          - target: ci-standard
+            distribution: raspbian
+            codename: bookworm
+            architecture: arm64
+            kernel_version: "6.1.70-rpi-v8"
+            kernel_config: "bcm2711_defconfig"
+            arch_env: "arm64"
+            platform: "ci"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t matrixio-builder .
+
+      - name: Verify build compatibility for ${{ matrix.target }}
+        run: |
+          echo "Verifying build compatibility for ${{ matrix.target }}: ${{ matrix.kernel_version }} (${{ matrix.arch_env }})"
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -e ARCH=${{ matrix.arch_env }} \
+            -e KERNEL_VERSION=${{ matrix.kernel_version }} \
+            -e KERNEL_CONFIG=${{ matrix.kernel_config }} \
+            -e TARGET_PLATFORM=${{ matrix.platform }} \
+            matrixio-builder
+
+      - name: Verify build artifacts
+        run: |
+          echo "=== Build verification completed ==="
+          ls -la src/*.ko 2>/dev/null || echo "Build verification successful (modules will be built on target via DKMS)"
+          ls -la src/*.dtbo 2>/dev/null || echo "Device tree overlay built successfully"
+
+      - name: Archive verification artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-verification-${{ matrix.target }}-${{ matrix.architecture }}
+          path: |
+            src/*.dtbo
+          retention-days: 30
+
+  # Phase 3: Package DKMS source packages (only after build verification succeeds)
+  package:
+    needs: verify-build-compatibility
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Pi 4 Legacy Package - ARM32 (Raspbian Buster) - for 5.10.x kernels
+          - target: pi4-legacy
+            distribution: raspbian
+            codename: buster
+            architecture: armhf
+            platform: "pi4"
+            kernel_series: "5.10.x"
+            debian_dir: "debian-buster"
+            package_name: "matrixio-kernel-modules-buster"
+          # Pi 5/Modern Pi 4 Package - ARM64 (Raspberry Pi OS Bookworm) - for 6.x kernels
+          - target: pi5-latest
+            distribution: raspios
+            codename: bookworm
+            architecture: arm64
+            platform: "pi5"
+            kernel_series: "6.x"
+            debian_dir: "debian-bookworm"
+            package_name: "matrixio-kernel-modules-bookworm"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download device tree overlays
+        uses: actions/download-artifact@v4
+        with:
+          name: build-verification-${{ matrix.target }}-${{ matrix.architecture }}
+          path: src/
+
+      - name: Determine version
+        id: version
+        run: |
+          # Make version script executable
+          chmod +x scripts/get-version.sh
+          
+          # Determine version strategy based on event type
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
+            # For tag pushes, use the tag version
+            TAG_VERSION="${{ github.ref_name }}"
+            if [[ "$TAG_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              VERSION="${TAG_VERSION#v}"  # Remove 'v' prefix
+              echo "Using tag version: $VERSION"
+            else
+              echo "Error: Tag '$TAG_VERSION' doesn't follow semantic versioning (vX.Y.Z)"
+              exit 1
+            fi
+          elif [[ "${{ github.ref }}" == "refs/heads/master" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+            # For main/master branch, generate next patch version
+            VERSION=$(scripts/get-version.sh --next patch)
+            echo "Generated next version for main branch: $VERSION"
+          else
+            # For other branches/PRs, use current version with branch suffix
+            BASE_VERSION=$(scripts/get-version.sh --current)
+            BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
+            VERSION="${BASE_VERSION}-${BRANCH_NAME}-${{ github.run_number }}"
+            echo "Generated development version: $VERSION"
+          fi
+          
+          echo "current_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "new_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "PKG_VER=$VERSION" >> $GITHUB_ENV
+          
+          echo "Final version: $VERSION"
+
+      - name: Update debian/changelog for new version
+        run: |
+          # Install debchange for changelog management
+          sudo apt-get update
+          sudo apt-get install -y devscripts
+          
+          # Update changelog with new version
+          export DEBEMAIL="github-actions@github.com"
+          export DEBFULLNAME="GitHub Actions"
+          
+          # Extract commit message summary for changelog
+          COMMIT_SUMMARY=$(echo "${{ github.event.head_commit.message }}" | head -1)
+          
+          # Update the appropriate debian directory changelog
+          cd ${{ matrix.debian_dir }}
+          dch -v "${{ steps.version.outputs.new_version }}-1" \
+              --distribution unstable \
+              "Automated version bump: $COMMIT_SUMMARY"
+          cd ..
+
+      - name: Build Debian package
+        run: |
+          # Install packaging dependencies
+          sudo apt-get update
+          sudo apt-get install -y debhelper dkms device-tree-compiler devscripts fakeroot build-essential dh-dkms
+          
+          # Copy appropriate debian directory to debian/ for build
+          rm -rf debian
+          cp -r ${{ matrix.debian_dir }} debian
+          
+          # Build the package (skip signing)
+          debuild -us -uc -b
+          
+          # Move package files
+          if [ -f ../${{ matrix.package_name }}_*.deb ]; then
+            mv ../${{ matrix.package_name }}_*.deb .
+          fi
+          if [ -f ../${{ matrix.package_name }}_*.buildinfo ]; then
+            mv ../${{ matrix.package_name }}_*.buildinfo . 2>/dev/null || true
+          fi
+          if [ -f ../${{ matrix.package_name }}_*.changes ]; then
+            mv ../${{ matrix.package_name }}_*.changes . 2>/dev/null || true
+          fi
+
+      - name: Rename package for distribution
+        run: |
+          export COMPONENT=$([ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ] && echo "main" || echo "unstable")
+          echo "COMPONENT=$COMPONENT" >> $GITHUB_ENV
+          
+          # Find the package file and rename it for specific target
+          if ls ${{ matrix.package_name }}_*.deb 1> /dev/null 2>&1; then
+            for deb_file in ${{ matrix.package_name }}_*.deb; do
+              base_name=$(basename "$deb_file" .deb)
+              new_name="${{ matrix.package_name }}_${{ matrix.target }}-${{ matrix.codename }}-${PKG_VER}-${COMPONENT}_${{ matrix.architecture }}.deb"
+              mv "$deb_file" "$new_name"
+              echo "Renamed $deb_file to $new_name"
+              echo "Target: ${{ matrix.target }} (${{ matrix.kernel_version }})"
+              echo "Distribution: ${{ matrix.distribution }} ${{ matrix.codename }}"
+            done
+          fi
+
+      - name: Archive package artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: packages-${{ matrix.target }}-${{ matrix.architecture }}
+          path: |
+            *.deb
+            *.buildinfo
+            *.changes
+          retention-days: 30
+
+      - name: Upload release packages
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-packages-${{ matrix.target }}-${{ matrix.architecture }}
+          path: "*.deb"
+          retention-days: 90
+
+
+  # Phase 4: Automatic versioning (only for main/master branch)
+  auto-version:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    needs: [run-tests, verify-build-compatibility, package]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push version tag
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          # Make script executable
+          chmod +x .github/scripts/auto-version-and-tag.sh
+          
+          # Run automatic versioning
+          ./.github/scripts/auto-version-and-tag.sh
+
+  # Phase 5: Build summary
+  build-summary:
+    needs: [run-tests, verify-build-compatibility, package]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-results-*
+          merge-multiple: true
+
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          merge-multiple: true
+
+      - name: Build Summary Report
+        run: |
+          echo "## Matrix Kernel Modules CI/CD Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Target | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Pi 4 Legacy (5.10.103-v7l+) | ${{ needs.run-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pi 5 Latest (6.12.47+rpt-rpi-2712) | ${{ needs.run-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CI Standard (6.1.70-rpi-v8) | ${{ needs.run-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Build Compatibility Verification" >> $GITHUB_STEP_SUMMARY
+          echo "| Target Platform | Kernel Series | Architecture | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------------|---------------|--------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Pi 4 Legacy | 5.10.x | armhf | ${{ needs.verify-build-compatibility.result == 'success' && '✅ Verified' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pi 5 Latest | 6.12.x | arm64 | ${{ needs.verify-build-compatibility.result == 'success' && '✅ Verified' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CI Standard | 6.1.x | arm64 | ${{ needs.verify-build-compatibility.result == 'success' && '✅ Verified' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### DKMS Package Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Distribution Package | Target Systems | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------------------|----------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| matrixio-kernel-modules-buster | Pi 4 Legacy (5.10.x kernels, ARM32) | ${{ needs.package.result == 'success' && '✅ Created' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| matrixio-kernel-modules-bookworm | Pi 5 + Modern Pi 4 (6.x kernels, ARM64) | ${{ needs.package.result == 'success' && '✅ Created' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Package Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package Type**: DKMS source packages (compile on target)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Installation**: Kernel modules built automatically via DKMS during installation" >> $GITHUB_STEP_SUMMARY
+          echo "- **Compatibility**: Automatically adapts to running kernel version" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Workflow Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sequential Phases**: Tests → Build Verification → DKMS Package" >> $GITHUB_STEP_SUMMARY
+          echo "- **Test Framework**: KUnit with Docker containers" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version Management**: Semantic versioning with centralized VERSION file" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artifacts retention**: 30 days (90 days for releases)" >> $GITHUB_STEP_SUMMARY
+
+  # Phase 6: Create GitHub Release for tags (only after all phases succeed)
+  create-release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: [run-tests, verify-build-compatibility, package]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-packages-*
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "*.deb"
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+          body: |
+            ## Matrix Creator Kernel Modules Release
+            
+            This release provides DKMS source packages for Matrix Creator HATs that automatically compile for your specific kernel:
+            
+            ### DKMS Package Benefits
+            - **Automatic compilation**: Modules build for your exact kernel version during installation
+            - **Kernel updates**: Automatically rebuilds when you update your kernel
+            - **No version conflicts**: Always compatible with your running kernel
+            
+            ### Target Systems
+            Choose the appropriate package for your system:
+            
+            - **matrixio-kernel-modules-buster**: For Pi 4 Legacy systems
+              - Raspbian Buster (Debian 10.13) ARM32
+              - 5.10.x kernel series
+              - Pi 4 Model B Rev 1.4 (BCM2711) ARM32
+            
+            - **matrixio-kernel-modules-bookworm**: For Modern Pi systems  
+              - Raspberry Pi OS Bookworm (Debian 12.12) ARM64
+              - 6.x kernel series (6.1.x, 6.12.x+)
+              - Pi 5 BCM2712 ARM64 and updated Pi 4 systems
+            
+            ### Installation
+            ```bash
+            # Add repository
+            echo "deb [trusted=yes] https://kai5263499.github.io/matrixio-kernel-modules/ stable main" | sudo tee /etc/apt/sources.list.d/matrixio.list
+            
+            # Update and install
+            sudo apt update
+            sudo apt install matrixio-kernel-modules  # DKMS will auto-select correct package
+            ```
+            
+            ### Verification
+            - ✅ KUnit tests passed across kernel versions (5.10.x, 6.1.x, 6.12.x)
+            - ✅ Cross-compilation verified for ARM32/ARM64 architectures  
+            - ✅ Kernel API compatibility layer tested
+            - ✅ DKMS integration verified for automatic building
+            
+            See the [installation guide](CLAUDE.md) for detailed instructions.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

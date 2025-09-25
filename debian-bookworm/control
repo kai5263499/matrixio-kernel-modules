@@ -1,0 +1,33 @@
+Source: matrixio-kernel-modules-bookworm
+Section: embedded
+Priority: optional
+Maintainer: MATRIX Labs <info@matrix.one>
+Build-Depends: debhelper (>= 13), dkms, device-tree-compiler, build-essential
+Standards-Version: 4.6.2
+Homepage: https://github.com/matrix-io/matrixio-kernel-modules
+Vcs-Git: https://github.com/matrix-io/matrixio-kernel-modules.git
+Vcs-Browser: https://github.com/matrix-io/matrixio-kernel-modules
+
+Package: matrixio-kernel-modules-bookworm
+Architecture: all
+Depends: ${misc:Depends},
+ matrixio-creator-init,
+ raspberrypi-kernel-headers | linux-headers-generic,
+ raspberrypi-kernel | linux-image-generic,
+ dkms,
+Description: Matrix Creator kernel modules for Raspberry Pi OS Bookworm
+ This package provides DKMS source for MATRIX Creator kernel modules
+ optimized for Raspberry Pi OS Bookworm (Debian 12.12).
+ .
+ Supports:
+  - Raspberry Pi 5 with 6.12.47+rpt-rpi-2712 kernel (ARM64)
+  - Raspberry Pi 4 with 6.1.70-rpi-v8 kernel (ARM64)
+ .
+ The package includes kernel modules for:
+  - Core MFD functionality (matrixio-core)
+  - Audio codec support (matrixio-codec, matrixio-mic, matrixio-playback)
+  - Environmental sensors (matrixio-env, matrixio-imu)
+  - LED ring control (matrixio-everloop)
+  - GPIO interface (matrixio-gpio)
+  - UART interface (matrixio-uart)
+  - Register map interface (matrixio-regmap)

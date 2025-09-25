@@ -332,7 +332,9 @@ static const struct snd_soc_component_driver matrixio_soc_platform = {
     .hw_free = matrixio_playback_hw_free,
     .prepare = matrixio_playback_prepare,
     .pointer = matrixio_playback_pointer,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 0, 0)
     .copy_user = matrixio_playback_copy,
+#endif
     .close = matrixio_playback_close,
 };
 

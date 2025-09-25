@@ -1,3 +1,4 @@
+#include "matrixio-compat.h"
 /*
  * matrixio_imu.c - Support for Vishay VEML6070 UV A light sensor
  *
@@ -120,13 +121,15 @@ static int matrixio_imu_write_raw(struct iio_dev *indio_dev,
 	if (mask == IIO_CHAN_INFO_CALIBBIAS) {
 
 		data_write = matrixio_int_plus_micro_to_int(val, val2);
-		mutex_lock(&indio_dev->mlock);
+		ret = MATRIXIO_IIO_LOCK(indio_dev);
+		if (ret < 0)
+			return ret;
 		ret = matrixio_write(data->mio,
 				     MATRIXIO_MCU_BASE +
 					 (MATRIXIO_SRAM_OFFSET_IMU >> 1) +
 					 chan->address + MATRIXIO_CALIB_OFFSET,
 				     sizeof(data_write), &data_write);
-		mutex_unlock(&indio_dev->mlock);
+		MATRIXIO_IIO_UNLOCK(indio_dev);
 		return ret;
 	}
 
@@ -153,13 +156,15 @@ static int matrixio_imu_read_raw(struct iio_dev *indio_dev,
 		return -EINVAL;
 	}
 
-	mutex_lock(&indio_dev->mlock);
+	ret = MATRIXIO_IIO_LOCK(indio_dev);
+	if (ret < 0)
+		return ret;
 	ret = matrixio_read(data->mio,
 			    MATRIXIO_MCU_BASE +
 				(MATRIXIO_SRAM_OFFSET_IMU >> 1) + offset,
 			    sizeof(data_read), &data_read);
 
-	mutex_unlock(&indio_dev->mlock);
+	MATRIXIO_IIO_UNLOCK(indio_dev);
 
 	if (ret)
 		return ret;
@@ -203,13 +208,13 @@ static int matrixio_imu_probe(struct platform_device *pdev)
 	return iio_device_register(indio_dev);
 }
 
-static int matrixio_imu_remove(struct platform_device *pdev)
+static MATRIXIO_REMOVE_RETURN_TYPE matrixio_imu_remove(struct platform_device *pdev)
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(&pdev->dev);
 
 	iio_device_unregister(indio_dev);
 
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static struct platform_driver matrixio_imu_driver = {
