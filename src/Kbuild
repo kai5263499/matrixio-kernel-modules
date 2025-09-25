@@ -1,12 +1,18 @@
+# Matrix Creator Kernel Modules Build Configuration
+# Compatible with Pi 4 (5.10.x) through Pi 5 (6.12.x) kernels
+
 obj-m += matrixio-core.o
-obj-m += matrixio-codec.o
-obj-m += matrixio-mic.o
-obj-m += matrixio-playback.o
+obj-m += matrixio-regmap.o
 obj-m += matrixio-env.o
 obj-m += matrixio-imu.o
 obj-m += matrixio-everloop.o
-obj-m += matrixio-gpio.o
-obj-m += matrixio-uart.o
-obj-m += matrixio-regmap.o
+obj-m += matrixio-codec.o
+obj-m += matrixio-mic.o
+obj-m += matrixio-playback.o
 
-ccflags-y := -Wno-missing-attributes
+# GPIO and UART modules disabled for kernel 6.12+ compatibility
+# Can be enabled for older kernels if needed
+# obj-m += matrixio-gpio.o
+# obj-m += matrixio-uart.o
+
+ccflags-y := -Wno-missing-attributes -Wno-missing-prototypes

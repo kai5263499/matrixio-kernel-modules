@@ -30,7 +30,7 @@ static int matrixio_gpio_get_direction(struct gpio_chip *gc, unsigned offset)
 	return (gpio_direction & BIT(offset));
 }
 
-static int matrixio_gpio_direction_input(struct gpio_chip *gc, unsigned offset)
+static MATRIXIO_GPIO_RETURN_TYPE matrixio_gpio_direction_input(struct gpio_chip *gc, unsigned offset)
 {
 	struct matrixio_gpio *chip = gpiochip_get_data(gc);
 	int gpio_direction;
@@ -43,10 +43,10 @@ static int matrixio_gpio_direction_input(struct gpio_chip *gc, unsigned offset)
 	regmap_write(chip->mio->regmap, MATRIXIO_GPIO_BASE, gpio_direction);
 	mutex_unlock(&chip->lock);
 
-	MATRIXIO_REMOVE_RETURN();
+	MATRIXIO_GPIO_RETURN();
 }
 
-static int matrixio_gpio_direction_output(struct gpio_chip *gc, unsigned offset,
+static MATRIXIO_GPIO_RETURN_TYPE matrixio_gpio_direction_output(struct gpio_chip *gc, unsigned offset,
 					  int value)
 {
 	struct matrixio_gpio *chip = gpiochip_get_data(gc);
@@ -69,7 +69,7 @@ static int matrixio_gpio_direction_output(struct gpio_chip *gc, unsigned offset,
 	regmap_write(chip->mio->regmap, MATRIXIO_GPIO_BASE + 1, gpio_value);
 	mutex_unlock(&chip->lock);
 
-	MATRIXIO_REMOVE_RETURN();
+	MATRIXIO_GPIO_RETURN();
 }
 
 static int matrixio_gpio_get(struct gpio_chip *gc, unsigned offset)
@@ -138,7 +138,7 @@ static int matrixio_gpio_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	MATRIXIO_REMOVE_RETURN();
+	MATRIXIO_GPIO_RETURN();
 }
 
 static MATRIXIO_REMOVE_RETURN_TYPE matrixio_gpio_remove(struct platform_device *pdev)
@@ -147,7 +147,7 @@ static MATRIXIO_REMOVE_RETURN_TYPE matrixio_gpio_remove(struct platform_device *
 	struct matrixio_gpio *gpio;
 	gpio = dev_get_drvdata(&pdev->dev);
 	mutex_destroy(&gpio->lock);
-	MATRIXIO_REMOVE_RETURN();
+	MATRIXIO_GPIO_RETURN();
 }
 
 static struct platform_driver matrixio_gpio_driver = {
