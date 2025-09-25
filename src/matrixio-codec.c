@@ -1,3 +1,4 @@
+#include "matrixio-compat.h"
 /*
  * matrix-codec.c -- MATRIX microphone array audio driver
  *
@@ -151,7 +152,7 @@ static int matrixio_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int matrixio_codec_remove(struct platform_device *pdev) { return 0; }
+static MATRIXIO_REMOVE_RETURN_TYPE matrixio_codec_remove(struct platform_device *pdev) { MATRIXIO_REMOVE_RETURN(); }
 
 static const struct of_device_id snd_matrixio_codec_of_match[] = {
     {

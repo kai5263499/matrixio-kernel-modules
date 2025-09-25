@@ -1,0 +1,21 @@
+---
+# Yamllint configuration for GitHub Actions workflows
+# More lenient rules suitable for CI/CD files
+
+extends: default
+
+rules:
+  line-length:
+    max: 120
+    level: warning
+  trailing-spaces: disable
+  truthy:
+    allowed-values: ['true', 'false', 'on', 'off', 'yes', 'no']
+    check-keys: false
+  document-start: disable
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+  comments:
+    min-spaces-from-content: 1

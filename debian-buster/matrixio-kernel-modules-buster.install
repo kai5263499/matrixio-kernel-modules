@@ -1,0 +1,5 @@
+src/*.c usr/src/matrixio-kernel-modules-buster-#MODULE_VERSION#/
+src/*.h usr/src/matrixio-kernel-modules-buster-#MODULE_VERSION#/
+src/Makefile usr/src/matrixio-kernel-modules-buster-#MODULE_VERSION#/
+src/Kbuild usr/src/matrixio-kernel-modules-buster-#MODULE_VERSION#/
+src/matrixio.dtbo boot/overlays

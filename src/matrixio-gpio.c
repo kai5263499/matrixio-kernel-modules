@@ -1,9 +1,14 @@
+#include "matrixio-compat.h"
 #include <linux/bitops.h>
 #include <linux/fs.h>
-#include <linux/gpio.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
+#include <linux/gpio/driver.h>
+#else
+#include <linux/gpio.h>
+#endif
 
 #include "matrixio-core.h"
 
@@ -38,7 +43,7 @@ static int matrixio_gpio_direction_input(struct gpio_chip *gc, unsigned offset)
 	regmap_write(chip->mio->regmap, MATRIXIO_GPIO_BASE, gpio_direction);
 	mutex_unlock(&chip->lock);
 
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static int matrixio_gpio_direction_output(struct gpio_chip *gc, unsigned offset,
@@ -64,7 +69,7 @@ static int matrixio_gpio_direction_output(struct gpio_chip *gc, unsigned offset,
 	regmap_write(chip->mio->regmap, MATRIXIO_GPIO_BASE + 1, gpio_value);
 	mutex_unlock(&chip->lock);
 
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static int matrixio_gpio_get(struct gpio_chip *gc, unsigned offset)
@@ -126,23 +131,23 @@ static int matrixio_gpio_probe(struct platform_device *pdev)
 
 	mutex_init(&gpio->lock);
 
-	ret = gpiochip_add_data(&gpio->chip, gpio);
+    ret = devm_gpiochip_add_data(&pdev->dev, &gpio->chip, gpio);
 
 	if (ret) {
 		dev_err(&pdev->dev, "Could not register gpiochip, %d\n", ret);
 		return ret;
 	}
 
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
-static int matrixio_gpio_remove(struct platform_device *pdev)
+static MATRIXIO_REMOVE_RETURN_TYPE matrixio_gpio_remove(struct platform_device *pdev)
 {
 
 	struct matrixio_gpio *gpio;
 	gpio = dev_get_drvdata(&pdev->dev);
 	mutex_destroy(&gpio->lock);
-	return 0;
+	MATRIXIO_REMOVE_RETURN();
 }
 
 static struct platform_driver matrixio_gpio_driver = {

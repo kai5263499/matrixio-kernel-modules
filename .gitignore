@@ -1,10 +1,64 @@
-*.cmd
+# Kernel module build artifacts
 *.ko
 *.o
+*.mod
+*.mod.c
+*.mod.o
+*.cmd
 *.d
 *.symvers
 *.order
-*.mod.c
-*.mod
+*.markers
+*.tmp_versions/
+.tmp_versions/
+build-test-*
+Module.symvers
+modules.order
+
+# Device tree blobs
 *.dtbo
 
+# Backup files created during fixes
+*.backup
+*.backup2
+*.orig
+
+# Build directories
+build/
+.module-common.o
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.claude/
+
+# Temporary files
+*.tmp
+*.temp
+fix_*.sh
+fix_*.patch
+*_fix.patch
+
+# Test outputs
+test_*.log
+*.test
+
+# Linux kernel headers cache
+.cache/
+
+# Distribution packages
+*.deb
+*.rpm
+*.tar.gz
+*.tar.xz
+
+# Generated files
+.config
+.config.old
+include/config/
+include/generated/
+arch/*/include/generated/
