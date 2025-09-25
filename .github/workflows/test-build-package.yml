@@ -272,7 +272,28 @@ jobs:
           retention-days: 90
 
 
-  # Phase 4: Build summary
+  # Phase 4: Automatic versioning (only for main/master branch)
+  auto-version:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    needs: [run-tests, verify-build-compatibility, package]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push version tag
+        run: |
+          # Make script executable
+          chmod +x .github/scripts/auto-version-and-tag.sh
+          
+          # Run automatic versioning
+          ./.github/scripts/auto-version-and-tag.sh
+
+  # Phase 5: Build summary
   build-summary:
     needs: [run-tests, verify-build-compatibility, package]
     runs-on: ubuntu-latest
@@ -334,7 +355,7 @@ jobs:
           echo "- **Version Management**: Semantic versioning with centralized VERSION file" >> $GITHUB_STEP_SUMMARY
           echo "- **Artifacts retention**: 30 days (90 days for releases)" >> $GITHUB_STEP_SUMMARY
 
-  # Phase 5: Create GitHub Release for tags (only after all phases succeed)
+  # Phase 6: Create GitHub Release for tags (only after all phases succeed)
   create-release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs: [run-tests, verify-build-compatibility, package]
