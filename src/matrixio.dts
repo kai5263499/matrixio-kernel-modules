@@ -2,7 +2,7 @@
 /plugin/ ;
 
 / {
-	compatible = "brcm,bcm2835", "brcm,bcm2708", "brcm,bcm2709";
+	compatible = "brcm,bcm2712", "brcm,bcm2835", "brcm,bcm2708", "brcm,bcm2709";
 
 	fragment@0 {
 		target = <&spidev0>;
@@ -42,13 +42,11 @@
 		};
 	};
 
-
         fragment@4 {
                 target = <&matrixio_core_0>;
                 __overlay__ {
                         matrixio-everloop@0 {
                                 compatible = "matrixio-everloop";
-
                         };
                 };
         };
@@ -94,6 +92,7 @@
 			};
 		};
 	};
+	
 	fragment@9 {
 		target = <&matrixio_core_0>;
 		__overlay__ {
@@ -107,25 +106,27 @@
         fragment@10 {
                 target = <&matrixio_core_0>;
                 __overlay__ {
-                        matrix-mic@0 {
+                        matrixio-mic@0 {
                                 compatible = "matrixio-mic";
                                 interrupts = <6 0x3>; /* both edges triggered - pin 6 now exclusively for mic */
                                 interrupt-parent = <&gpio>;
                         };
                 };
         };
+        
         fragment@11 {
                 target = <&matrixio_core_0>;
                 __overlay__ {
-                        matrix-playback@0 {
+                        matrixio-playback@0 {
                                 compatible = "matrixio-playback";
                         };
                 };
         };
+        
         fragment@12 {
                 target = <&matrixio_core_0>;
                 __overlay__ {
-                        matrix-codec@0 {
+                        matrixio-codec@0 {
                                 compatible = "matrixio-codec";
                         };
                 };
@@ -136,7 +137,6 @@
                 __overlay__ {
                         matrixio-regmap@0 {
                                 compatible = "matrixio-regmap";
-
                         };
                 };
         };
