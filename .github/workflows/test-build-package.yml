@@ -32,6 +32,9 @@ jobs:
 
     - name: Run KUnit tests for ${{ matrix.test-target }}
       run: |
+        echo "🧪 Testing Matrix Creator kernel modules"
+        echo "📋 Target: ${{ matrix.test-target }}"
+        echo "🔖 Version: $(scripts/get-version.sh --current)"
         cd tests
         ./run-tests-docker.sh --verbose ${{ matrix.test-target }}
 
@@ -190,6 +193,10 @@ jobs:
         echo "PKG_VER=$VERSION" >> $GITHUB_ENV
         
         echo "Final version: $VERSION"
+        echo "## Building Version $VERSION" >> $GITHUB_STEP_SUMMARY
+        echo "🏗️ **Package Version**: $VERSION" >> $GITHUB_STEP_SUMMARY
+        echo "📦 **Event**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "🌿 **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
 
     - name: Update debian/changelog for new version
       run: |
@@ -326,6 +333,7 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         
         echo "### Workflow Information" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: $(scripts/get-version.sh --current)" >> $GITHUB_STEP_SUMMARY
         echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Event**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
