@@ -16,7 +16,7 @@ This fork includes major enhancements over the upstream version:
 
 | Target | Kernel | Architecture | Package |
 |--------|--------|--------------|---------|
-| **Pi 5 Latest** | 6.12.34-rpi-2712 | ARM64 | matrixio-kernel-modules-bookworm |
+| **Pi 5 Latest** | 6.12.47+rpt-rpi-2712 | ARM64 | matrixio-kernel-modules-bookworm |
 | **Pi 4 Current** | 6.1.70-rpi-v8 | ARM64 | matrixio-kernel-modules-bookworm |
 | **Pi 4 Legacy** | 5.10.103-v7l+ | ARM32 | matrixio-kernel-modules-buster |
 
@@ -96,7 +96,7 @@ cd tests
 ### Supported Test Targets
 
 - `pi4-legacy` - Raspberry Pi 4 with 5.10.103-v7l+ kernel (ARM32)
-- `pi5-latest` - Raspberry Pi 5 with 6.12.34-rpi-2712 kernel (ARM64)  
+- `pi5-latest` - Raspberry Pi 5 with 6.12.47+rpt-rpi-2712 kernel (ARM64)  
 - `ci-standard` - CI environment with 6.1.70-rpi-v8 kernel (ARM64)
 
 ## 📦 Package Architecture
