@@ -286,6 +286,12 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push version tag
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           # Make script executable
           chmod +x .github/scripts/auto-version-and-tag.sh
