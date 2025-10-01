@@ -36,7 +36,7 @@
 		target = <&gpio>;
 		__overlay__ {
 			matrixio_pins: matrixio_pins {
-				brcm,pins = <5 6>;
+				brcm,pins = <5 26>; /* Changed from pin 6 to pin 26 to avoid IRQ conflict */
 				brcm,function = <0 0>;
 			};
 		};
@@ -109,7 +109,7 @@
                 __overlay__ {
                         matrix-mic@0 {
                                 compatible = "matrixio-mic";
-                                interrupts = <6 0x3>; /* both edges triggered */
+                                interrupts = <6 0x3>; /* both edges triggered - pin 6 now exclusively for mic */
                                 interrupt-parent = <&gpio>;
                         };
                 };
@@ -148,4 +148,3 @@
 			   <&frag2>,"cs-gpios:16";
 	};
 };
-
