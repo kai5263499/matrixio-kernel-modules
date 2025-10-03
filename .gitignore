@@ -62,6 +62,26 @@ test_*.log
 include/config/
 include/generated/
 arch/*/include/generated/
-# Keep GitHub workflow templates and scripts
-!.github/templates/
-!.github/scripts/
+
+# Test binaries
+tests/matrix_test_working
+tests/*.o
+tests/matrix_test_*
+!tests/matrix_test_*.cpp
+!tests/matrix_test_*.sh
+
+# Test results and artifacts
+/tmp/matrix_test_results/
+matrix_test_results/
+tests/matrix_test_results/
+*.log
+*.summary
+
+# Additional test binaries and object files
+tests/*.exe
+tests/test_*
+!tests/test_*.cpp
+!tests/test_*.sh
+tests/build/
+tests/bin/
+tests/obj/

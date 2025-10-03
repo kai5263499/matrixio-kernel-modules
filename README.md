@@ -16,7 +16,7 @@ This fork includes major enhancements over the upstream version:
 
 | Target | Kernel | Architecture | Package |
 |--------|--------|--------------|---------|
-| **Pi 5 Latest** | 6.12.34-rpi-2712 | ARM64 | matrixio-kernel-modules-bookworm |
+| **Pi 5 Latest** | 6.12.47+rpt-rpi-2712 | ARM64 | matrixio-kernel-modules-bookworm |
 | **Pi 4 Current** | 6.1.70-rpi-v8 | ARM64 | matrixio-kernel-modules-bookworm |
 | **Pi 4 Legacy** | 5.10.103-v7l+ | ARM32 | matrixio-kernel-modules-buster |
 
@@ -96,7 +96,7 @@ cd tests
 ### Supported Test Targets
 
 - `pi4-legacy` - Raspberry Pi 4 with 5.10.103-v7l+ kernel (ARM32)
-- `pi5-latest` - Raspberry Pi 5 with 6.12.34-rpi-2712 kernel (ARM64)  
+- `pi5-latest` - Raspberry Pi 5 with 6.12.47+rpt-rpi-2712 kernel (ARM64)  
 - `ci-standard` - CI environment with 6.1.70-rpi-v8 kernel (ARM64)
 
 ## 📦 Package Architecture
@@ -182,3 +182,141 @@ grep matrixio /boot/config.txt
 ## 📄 License
 
 Distributed under the same license as the original MATRIX Labs project.# Test CI fixes for kernel compatibility and versioning
+
+## 🔄 Kernel Module Architecture: Old vs New
+
+### Legacy Kernel Module Architecture (Pre-2024)
+
+The original MATRIX kernel modules used a **direct hardware access** model:
+
+```
+[HAL Library] → [/dev/spidev0.0] → [SPI Bus] → [FPGA Hardware]
+```
+
+**Characteristics:**
+- **Direct SPI Access**: HAL library communicated directly with `/dev/spidev0.0`
+- **No Kernel Mediation**: SPI traffic went straight to FPGA without kernel module intervention
+- **Raw FPGA Registers**: Device IDs and configuration read directly from FPGA memory
+- **Expected Device IDs**: `0x05C344E8` (Creator) or `0x6032BAD2` (Voice)
+- **Simple Device Tree**: Standard `spidev` enabled, minimal overlay
+
+### Modern Kernel Module Architecture (Current)
+
+The new kernel modules implement a **kernel-mediated access** model:
+
+```
+[HAL Library] → [/dev/matrixio_regmap] → [matrixio-core Module] → [SPI Bus] → [FPGA]
+```
+
+**Key Changes:**
+
+#### 1. Device Tree Transformation
+```dts
+fragment@0 {
+    target = <&spidev0>;
+    __overlay__ { status = "disabled"; };  // ← Disables direct SPI access
+};
+
+fragment@2 {
+    target = <&spi0>;
+    __overlay__ {
+        matrixio_core_0: matrixio_core@0 {   // ← Kernel module takes over SPI
+            compatible = "matrixio-core";
+            reg = <0>;                       // ← MATRIX device on spi0.0
+        };
+    };
+};
+```
+
+#### 2. SPI Device Mapping
+- **`spi0.0`**: `matrixio-core` (MATRIX device, kernel-controlled)
+- **`spi0.1`**: `spidev` (generic SPI, available for direct access)
+- **`/dev/spidev0.0`**: **Does not exist** (disabled by device tree)
+- **`/dev/spidev0.1`**: Available but **wrong device** (not MATRIX hardware)
+
+#### 3. Access Interfaces
+- **`/dev/matrixio_regmap`**: Kernel module interface (ioctl: 1200/1201)
+- **`/dev/matrixio_everloop`**: Direct LED control interface
+- **ALSA devices**: `hw:2,0` for microphone array
+
+#### 4. Device ID Changes
+- **New Device ID**: `0x67452301` (returned via regmap interface)
+- **Virtualized by Kernel**: May not reflect raw FPGA values
+- **Consistent Interface**: Kernel module provides stable API regardless of FPGA firmware
+
+### HAL Library Compatibility Requirements
+
+#### Legacy HAL Behavior
+```cpp
+// Legacy: Try SPI first
+if (bus_direct->Init()) {           // /dev/spidev0.0
+    // Use SPI direct access
+} else if (bus_kernel->Init()) {    // /dev/matrixio_regmap  
+    // Fallback to kernel module
+}
+```
+
+#### Modern HAL Behavior (Required)
+```cpp
+// Modern: Try kernel module first  
+if (bus_kernel->Init()) {           // /dev/matrixio_regmap
+    // Use kernel module interface (preferred)
+} else if (bus_direct->Init()) {    // /dev/spidev0.0 (if available)
+    // Fallback to direct SPI (legacy compatibility)
+}
+```
+
+#### Device ID Support
+```cpp
+// Must recognize both legacy and new device IDs
+const int kMatrixCreator = 0x05C344E8;      // Legacy
+const int kMatrixVoice = 0x6032BAD2;        // Legacy  
+const int kMatrixCreatorNew = 0x67452301;   // New kernel modules
+
+if (matrix_name_ == kMatrixCreator || matrix_name_ == kMatrixCreatorNew) {
+    matrix_leds_ = kMatrixCreatorNLeds;  // 35 LEDs
+}
+```
+
+### Migration Impact
+
+#### Applications Using HAL Library
+- **✅ No changes required** if using updated HAL library
+- **⚠️ Requires HAL update** to recognize new device ID and prioritize kernel interface
+
+#### Applications Using Direct Interfaces  
+- **✅ `/dev/matrixio_everloop`**: Continue to work (direct LED control)
+- **✅ ALSA audio**: Continue to work (`arecord -D hw:2,0`)
+- **❌ `/dev/spidev0.0`**: No longer available for direct MATRIX access
+- **❌ Raw SPI access**: Must migrate to `/dev/matrixio_regmap` interface
+
+### Benefits of New Architecture
+
+1. **Stability**: Kernel module handles SPI communication edge cases
+2. **Abstraction**: Consistent interface regardless of FPGA firmware version  
+3. **Multi-device**: Kernel module can manage multiple MATRIX components
+4. **Integration**: Better integration with Linux device model and ALSA
+5. **Debugging**: Kernel module can provide better error handling and logging
+
+### Testing Your System
+
+```bash
+# Check which architecture you're using
+ls -la /dev/spidev0.* /dev/matrixio_*
+
+# Legacy system will show:
+# /dev/spidev0.0 (real device, not symlink)
+# No /dev/matrixio_* devices
+
+# Modern system will show:  
+# /dev/spidev0.0 -> /dev/spidev0.1 (symlink, if created)
+# /dev/spidev0.1 (generic SPI)
+# /dev/matrixio_regmap (kernel module interface)
+# /dev/matrixio_everloop (LED control)
+
+# Check SPI device assignments
+cat /sys/bus/spi/devices/spi0.0/modalias  # Should show: spi:matrixio-core
+cat /sys/bus/spi/devices/spi0.1/modalias  # Should show: spi:spidev
+```
+
+This architectural change represents a fundamental shift from direct hardware access to a proper Linux kernel subsystem integration, providing better stability and functionality at the cost of requiring application updates.
