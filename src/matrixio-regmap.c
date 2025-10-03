@@ -79,6 +79,7 @@ static int matrixio_regmap_uevent(struct device *dev, struct kobj_uevent_env *en
 static int matrixio_regmap_probe(struct platform_device *pdev)
 {
 	struct regmap_data *el;
+	int ret;
 
 	el = devm_kzalloc(&pdev->dev, sizeof(struct regmap_data), GFP_KERNEL);
 
@@ -87,10 +88,25 @@ static int matrixio_regmap_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(&pdev->dev, el);
 
-	el->mio = dev_get_drvdata(pdev->dev.parent);
+	el->mio = dev_get_platdata(&pdev->dev);
+	if (!el->mio) {
+		dev_err(&pdev->dev, "Failed to get parent device data\n");
+		return -EINVAL;
+	}
 
-	alloc_chrdev_region(&el->devt, 0, 1, "matrixio_regmap");
+	ret = alloc_chrdev_region(&el->devt, 0, 1, "matrixio_regmap");
+	if (ret < 0) {
+		dev_err(&pdev->dev, "Failed to allocate chrdev region\n");
+		return ret;
+	}
+
 	el->cl = MATRIXIO_CLASS_CREATE("matrixio_regmap");
+	if (IS_ERR(el->cl)) {
+		ret = PTR_ERR(el->cl);
+		dev_err(&pdev->dev, "Failed to create class: %d\n", ret);
+		unregister_chrdev_region(el->devt, 1);
+		return ret;
+	}
 
 	el->cl->dev_uevent = MATRIXIO_UEVENT_CAST(matrixio_regmap_uevent);
 
@@ -98,12 +114,22 @@ static int matrixio_regmap_probe(struct platform_device *pdev)
 	    device_create(el->cl, NULL, el->devt, NULL, "matrixio_regmap");
 
 	if (IS_ERR(el->device)) {
+		ret = PTR_ERR(el->device);
 		dev_err(&pdev->dev, "Unable to create device "
-				    "for matrix; errno = %ld\n",
-			PTR_ERR(el->device));
+				    "for matrix; errno = %d\n", ret);
+		class_destroy(el->cl);
+		unregister_chrdev_region(el->devt, 1);
+		return ret;
 	}
 	cdev_init(&el->cdev, &matrixio_regmap_file_operations);
-	cdev_add(&el->cdev, el->devt, 1);
+	ret = cdev_add(&el->cdev, el->devt, 1);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "Failed to add cdev\n");
+		device_destroy(el->cl, el->devt);
+		class_destroy(el->cl);
+		unregister_chrdev_region(el->devt, 1);
+		return ret;
+	}
 
 	return 0;
 }
@@ -112,7 +138,10 @@ static MATRIXIO_REMOVE_RETURN_TYPE matrixio_regmap_remove(struct platform_device
 {
 	struct regmap_data *el = dev_get_drvdata(&pdev->dev);
 
-	unregister_chrdev(el->major, "matrixio_regmap");
+	cdev_del(&el->cdev);
+	device_destroy(el->cl, el->devt);
+	class_destroy(el->cl);
+	unregister_chrdev_region(el->devt, 1);
 
 	MATRIXIO_REMOVE_RETURN();
 }
