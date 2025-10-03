@@ -21,7 +21,7 @@ TEST_ONLY=0
 get_kernel_config() {
     case "$1" in
         "pi4-legacy")
-            echo "5.10.103-v7l+ arm"
+            echo "5.10.110-v7l+ arm"
             ;;
         "pi5-latest")
             echo "6.12.34-rpi-2712 arm64"
@@ -45,7 +45,7 @@ Usage: $0 [OPTIONS] [TEST_TARGET]
 Run KUnit tests for Matrix Creator kernel modules in Docker containers.
 
 TEST_TARGET can be:
-    pi4-legacy    - Test on Pi 4 legacy kernel (5.10.103-v7l+ arm)
+    pi4-legacy    - Test on Pi 4 legacy kernel (5.10.110-v7l+ arm)
     pi5-latest    - Test on Pi 5 latest kernel (6.12.34-rpi-2712 arm64)
     ci-standard   - Test on CI standard kernel (6.1.70-rpi-v8 arm64)
     all           - Test on all target configurations (default)
@@ -289,10 +289,12 @@ run_tests_for_config() {
     
     docker run "${docker_args[@]}" "$image_name" "$arch" "$kernel_version" "$run_mode" || {
         log "ERROR: Tests failed for $config_name"
+        generate_failure_results "$config_name"
         return 1
     }
     
     log "Tests completed successfully for $config_name"
+    generate_test_results "$config_name"
     
     # Clean up dockerfile
     rm -f "$dockerfile_path"
@@ -399,3 +401,52 @@ case "$TEST_TARGET" in
 esac
 
 log "All tests completed successfully!"
+# Generate test result files for CI/CD pipeline
+generate_test_results() {
+    local config_name="$1"
+    local result_file="tests/test-results-${config_name}.log"
+    local summary_file="tests/${config_name}-summary.log"
+    
+    # Create test results directory if it doesn't exist
+    mkdir -p "$(dirname "$result_file")"
+    
+    # Generate test result file
+    cat > "$result_file" << RESULT_EOF
+TEST_CONFIG=${config_name}
+TIMESTAMP=$(date -Iseconds)
+STATUS=SUCCESS
+MODULES_BUILT=true
+KERNEL_COMPATIBLE=true
+BUILD_SUCCESSFUL=true
+RESULT_EOF
+    
+    # Generate summary log
+    echo "Test completed successfully for ${config_name} at $(date)" > "$summary_file"
+    
+    echo "Test results generated: $result_file"
+}
+
+# Generate test result files even on failure
+generate_failure_results() {
+    local config_name="$1"
+    local result_file="tests/test-results-${config_name}.log"
+    local summary_file="tests/${config_name}-summary.log"
+    
+    # Create test results directory if it doesn't exist
+    mkdir -p "$(dirname "$result_file")"
+    
+    # Generate failure result file
+    cat > "$result_file" << RESULT_EOF
+TEST_CONFIG=${config_name}
+TIMESTAMP=$(date -Iseconds)
+STATUS=FAILED
+MODULES_BUILT=false
+KERNEL_COMPATIBLE=unknown
+BUILD_SUCCESSFUL=false
+RESULT_EOF
+    
+    # Generate summary log
+    echo "Test failed for ${config_name} at $(date)" > "$summary_file"
+    
+    echo "Failure results generated: $result_file"
+}

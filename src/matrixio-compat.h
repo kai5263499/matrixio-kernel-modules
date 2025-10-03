@@ -22,6 +22,15 @@
     #define MATRIXIO_REMOVE_RETURN() return 0
 #endif
 
+/* Fix for GPIO function return types in kernel 6.12+ */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+    #define MATRIXIO_GPIO_RETURN_TYPE void
+    #define MATRIXIO_GPIO_RETURN() return
+#else  
+    #define MATRIXIO_GPIO_RETURN_TYPE int
+    #define MATRIXIO_GPIO_RETURN() return 0
+#endif
+
 /* UART xmit structure moved in kernel 6.1+ - access patterns changed */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
 #include <linux/serial_core.h>
@@ -42,14 +51,14 @@
 #define MATRIXIO_UART_CIRC_EMPTY(port) uart_circ_empty(&(port)->state->xmit)
 #endif
 
-/* class_create API changed in kernel 6.4+ */
+/* Class creation API changed in kernel 6.4+ */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
-#define MATRIXIO_CLASS_CREATE(name) class_create(name)
+    #define MATRIXIO_CLASS_CREATE(name) class_create(name)
 #else
-#define MATRIXIO_CLASS_CREATE(name) class_create(THIS_MODULE, name)
+    #define MATRIXIO_CLASS_CREATE(name) class_create(THIS_MODULE, name)
 #endif
 
-/* dev_uevent function signature changed - use void* cast to bypass type checking */
+/* Device uevent function signature changed - use void* cast to bypass type checking */
 #define MATRIXIO_UEVENT_CAST(func) ((void*)(func))
 
 /* IIO mlock removed in kernel 6.1+ - use iio_device_claim_direct_mode instead */
